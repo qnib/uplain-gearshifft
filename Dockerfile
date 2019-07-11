@@ -6,6 +6,10 @@ ARG FROM_IMG_TAG="2019-07-11"
 ARG FROM_IMG_HASH=""
 FROM ${DOCKER_REGISTRY}/${FROM_IMG_REPO}/${FROM_IMG_NAME}:${FROM_BASE_TAG}_${FROM_IMG_TAG}${DOCKER_IMG_HASH} AS build
 
+ARG NUM_THREADS=2
+ARG CFLAGS_MARCH="core2"
+ARG CFLAGS_OPT=2
+
 ENV DEBIAN_FRONTEND=noninteractive \
     DEBCONF_NONINTERACTIVE_SEEN=true
 ## compile_boost.sh
@@ -15,7 +19,8 @@ ENV BOOST_VERSION=1.67.0
 ENV BOOST_SRC="/usr/src/boost"
 # boost install dir
 ENV BOOST_ROOT="/usr/local/boost"
-ARG NUM_THREADS=2
+ENV CFLAGS="-march=${CFLAGS_MARCH} -O${CFLAGS_OPT} -pipe"
+ENV CXXFLAGS="${CFLAGS}"
 
 RUN apt update \
  && apt install -y --no-install-recommends \
@@ -47,11 +52,11 @@ ENV VERS_double=${FFTW_VERS}_double
 ENV FFTW_ROOT=/usr/local/fftw/${VERS_single}
 # if directories do not exist, create them and unpack fftw_**.tar.gz
 WORKDIR /usr/local/fftw/${VERS_single}
-ENV IFLAG_STD="--enable-static=yes --enable-shared=yes --with-gnu-ld  --enable-silent-rules --with-pic"
-ENV IFLAGS="--prefix=${FFTW_ROOT} --enable-openmp --enable-sse2 -q $IFLAG_STD"
 RUN wget -qO- http://www.fftw.org/fftw-${FFTW_VERS}.tar.gz | tar xfz - --strip-components=1
 RUN cp -r /usr/local/fftw/${VERS_single} /usr/local/fftw/${VERS_double}
-RUN ./configure $IFLAGS "--enable-float"
+ENV IFLAG_STD="--enable-static=yes --enable-shared=yes --with-gnu-ld  --enable-silent-rules --with-pic"
+ENV IFLAGS="--prefix=${FFTW_ROOT} --enable-openmp --enable-sse2 -q $IFLAG_STD"
+RUN ./configure $IFLAGS "--enable-single"
 RUN make -j${NUM_THREADS}
 RUN make install
 # double
@@ -64,7 +69,7 @@ WORKDIR /opt/gearshifft/release
 RUN export CMAKE_PREFIX_PATH==${BOOST_ROOT}/lib:${BOOST_ROOT}/include:${CMAKE_PREFIX_PATH} \
  && cmake -DCMAKE_INSTALL_PREFIX=/usr/local/gearshifft ..
 RUN make -j ${NUM_THREADS} install
-ENV LD_LIBRARY_PATH=/usr/local/fftw/3.3.8_single/lib/
+ENV LD_LIBRARY_PATH=/usr/local/fftw/${FFTW_VERS}_single/lib/
 
 FROM ${DOCKER_REGISTRY}/ubuntu:${FROM_BASE_TAG}
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -72,7 +77,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 ENV LD_LIBRARY_PATH=/usr/local/fftw/lib/
 ###
 RUN apt-get update \
- && apt-get install -y libgomp1 \
+ && apt-get install --no-install-recommends -y libgomp1 \
  && rm -rf /var/cache
 ## COPY boost
 COPY --from=build /usr/local/boost /usr/local/boost
